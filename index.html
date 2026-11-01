@@ -50,6 +50,13 @@
   .chip { display: inline-block; font-size: .85rem; background: var(--soft); color: var(--main); border-radius: 999px; padding: 2px 10px; margin: 4px 0; }
   .ai details { margin: 6px 0; font-size: .9rem; }
   .ai details summary { cursor: pointer; color: var(--main); }
+  label.btn { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; cursor: pointer; background: #fff; }
+  #thumbs { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+  .thumb { position: relative; }
+  .thumb img { height: 72px; border-radius: 8px; border: 1px solid var(--line); display: block; }
+  .thumb button { position: absolute; top: -8px; right: -8px; padding: 0 7px; border-radius: 999px; font-size: .8rem; }
+  .me img { max-height: 160px; max-width: 100%; border-radius: 8px; margin: 6px 6px 0 0; display: inline-block; vertical-align: top; }
+  body.drag { outline: 3px dashed var(--main); outline-offset: -6px; }
 </style>
 </head>
 <body>
@@ -98,7 +105,12 @@
 
 <p class="note">AI 老師可能會答錯，尤其是計算題。重要的答案請對照課本或問學校老師。</p>
 <textarea id="input" placeholder="輸入內容，按「送出」（Ctrl+Enter 也可以）"></textarea>
-<div class="row"><button id="send">送出</button></div>
+<div id="thumbs"></div>
+<div class="row">
+  <button id="send">送出</button>
+  <label class="btn">📷 加圖片<input type="file" id="file" accept="image/*" multiple hidden></label>
+  <span class="note">手機可拍照或選相簿；電腦可 Ctrl+V 貼上截圖或拖曳圖片進來</span>
+</div>
 <div id="log"></div>
 
 <script>
@@ -166,11 +178,70 @@ function updateAgentNote() {
 }
 updateAgentNote();
 
+// ---------- 圖片 ----------
+const MAX_IMAGES = 5;
+let images = []; // { mime, data }（base64，不含 data: 前綴）
+
+// 縮到長邊 1568px 再轉 JPEG：省流量也省 token，手機原圖動輒好幾 MB
+async function shrink(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    await new Promise((ok, bad) => { img.onload = ok; img.onerror = () => bad(new Error("讀不到這張圖")); img.src = url; });
+    const s = Math.min(1, 1568 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.naturalWidth * s);
+    c.height = Math.round(img.naturalHeight * s);
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    return { mime: "image/jpeg", data: c.toDataURL("image/jpeg", 0.88).split(",")[1] };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function addFiles(files) {
+  for (const f of files) {
+    if (!f.type.startsWith("image/")) continue;
+    if (images.length >= MAX_IMAGES) { alert(`一次最多 ${MAX_IMAGES} 張圖`); break; }
+    try { images.push(await shrink(f)); } catch (e) { alert(e.message); }
+  }
+  renderThumbs();
+}
+
+function renderThumbs() {
+  $("thumbs").innerHTML = "";
+  images.forEach((im, i) => {
+    const t = document.createElement("div");
+    t.className = "thumb";
+    t.innerHTML = `<img src="data:${im.mime};base64,${im.data}" alt=""><button title="移除">×</button>`;
+    t.querySelector("button").onclick = () => { images.splice(i, 1); renderThumbs(); };
+    $("thumbs").append(t);
+  });
+}
+
+$("file").onchange = async e => { await addFiles([...e.target.files]); e.target.value = ""; };
+document.addEventListener("paste", e => {
+  const files = [...(e.clipboardData?.items || [])].filter(it => it.type.startsWith("image/")).map(it => it.getAsFile());
+  if (files.length) { e.preventDefault(); addFiles(files); }
+});
+document.addEventListener("dragover", e => { e.preventDefault(); document.body.classList.add("drag"); });
+document.addEventListener("dragleave", e => { if (!e.relatedTarget) document.body.classList.remove("drag"); });
+document.addEventListener("drop", e => { e.preventDefault(); document.body.classList.remove("drag"); addFiles([...e.dataTransfer.files]); });
+
 // ---------- 畫面 ----------
-function add(text, cls) {
+function add(text, cls, imgs = []) {
   const d = document.createElement("div");
   d.className = "msg " + cls;
   d.textContent = text;
+  if (imgs.length) d.append(document.createElement("br"));
+  for (const im of imgs) {
+    const img = document.createElement("img");
+    img.src = `data:${im.mime};base64,${im.data}`;
+    d.append(img);
+  }
   $("log").prepend(d);
   return d;
 }
@@ -282,33 +353,48 @@ async function postJSON(url, headers, body) {
   return data;
 }
 
-// 把 Claude 原生格式的對話轉成純文字（給 OpenAI / Gemini，或不開工具的 Claude）
-function plainHistory(msgs) {
+// 把 Claude 原生格式的對話整理成只剩文字與圖片的通用格式（給 OpenAI / Gemini，或不開工具的 Claude）
+// 結果：[{ role, parts: [{ type: "text", text } | { type: "image", mime, data }] }]，同角色相鄰的會合併
+function normalize(msgs) {
   const out = [];
   for (const m of msgs) {
-    const text = typeof m.content === "string" ? m.content
-      : m.content.filter(b => b.type === "text").map(b => b.text).join("\n");
-    if (!text.trim()) continue;
+    const parts = (typeof m.content === "string" ? [{ type: "text", text: m.content }] : m.content.flatMap(b =>
+      b.type === "text" ? [{ type: "text", text: b.text }]
+      : b.type === "image" ? [{ type: "image", mime: b.source.media_type, data: b.source.data }] : []))
+      .filter(p => p.type === "image" || p.text.trim());
+    if (!parts.length) continue;
     const last = out[out.length - 1];
-    if (last && last.role === m.role) last.content += "\n" + text;
-    else out.push({ role: m.role, content: text });
+    if (last && last.role === m.role) last.parts.push(...parts);
+    else out.push({ role: m.role, parts });
   }
   return out;
 }
 
-async function callOpenAI(model, system, msgs) {
+const toClaude = n => n.map(m => ({ role: m.role, content: m.parts.map(p => p.type === "text"
+  ? { type: "text", text: p.text }
+  : { type: "image", source: { type: "base64", media_type: p.mime, data: p.data } }) }));
+
+async function callOpenAI(model, system, n) {
+  const messages = n.map(m => m.role === "assistant"
+    ? { role: "assistant", content: m.parts.filter(p => p.type === "text").map(p => p.text).join("\n") }
+    : { role: "user", content: m.parts.map(p => p.type === "text"
+        ? { type: "text", text: p.text }
+        : { type: "image_url", image_url: { url: `data:${p.mime};base64,${p.data}` } }) });
   const data = await postJSON("https://api.openai.com/v1/chat/completions",
     { authorization: "Bearer " + getKey("openai") },
-    { model, messages: [{ role: "system", content: system }, ...msgs] });
+    { model, messages: [{ role: "system", content: system }, ...messages] });
   return data.choices[0].message.content || "";
 }
 
-async function callGemini(model, system, msgs) {
+async function callGemini(model, system, n) {
   const data = await postJSON(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     { "x-goog-api-key": getKey("gemini") },
     {
       systemInstruction: { parts: [{ text: system }] },
-      contents: msgs.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }))
+      contents: n.map(m => ({
+        role: m.role === "assistant" ? "model" : "user",
+        parts: m.parts.map(p => p.type === "text" ? { text: p.text } : { inlineData: { mimeType: p.mime, data: p.data } })
+      }))
     });
   return (data.candidates?.[0]?.content?.parts || []).filter(p => p.text).map(p => p.text).join("\n");
 }
@@ -390,7 +476,7 @@ async function runTool(block, box) {
     if (block.name === "ask_expert") {
       const p = inp.provider === "openai" ? "openai" : "gemini";
       const c = chip(box, `🧑‍🏫 請 ${NAME[p]} 提供意見中…`);
-      const q = [{ role: "user", content: String(inp.question || "") }];
+      const q = normalize([{ role: "user", content: String(inp.question || "") }]);
       const sys = "你是協助台灣國高中老師的專家。用繁體中文回答，精確、簡潔，計算列出步驟。";
       const ans = p === "openai" ? await callOpenAI(HELPER.openaiText, sys, q) : await callGemini(HELPER.geminiText, sys, q);
       c.textContent = `🧑‍🏫 ${NAME[p]} 回覆了`;
@@ -411,17 +497,25 @@ async function runTool(block, box) {
 $("send").onclick = async () => {
   const model = $("model").value;
   const provider = providerOf(model);
-  const text = $("input").value.trim();
+  let text = $("input").value.trim();
   if (!getKey(provider)) { $("settings").open = true; return add(`請先在設定填 ${provider === "claude" ? "Claude" : NAME[provider]} 的 API key`, "err"); }
-  if (!text) return;
+  if (!text && !images.length) return;
   const mode = $("mode").value;
+  const imgs = images;
+  if (!text) text = mode === "tutor" ? "請幫我看這張圖裡的題目。" : mode === "chat" ? "請看這張圖。" : "請翻譯圖片裡的文字。";
+  // 圖片放在文字前面，模型讀圖效果較好
+  const userMsg = { role: "user", content: imgs.length
+    ? [...imgs.map(im => ({ type: "image", source: { type: "base64", media_type: im.mime, data: im.data } })), { type: "text", text }]
+    : text };
   // 翻譯模式每次獨立，不帶歷史；聊天模式才累積對話
   const keepHistory = mode === "chat" || mode === "tutor";
   const base = keepHistory ? history : [];
   const useTools = provider === "claude" && keepHistory && $("agent").checked && helpers().length > 0;
 
-  add(text, "me");
+  add(text, "me", imgs);
   $("input").value = "";
+  images = [];
+  renderThumbs();
   $("send").disabled = true;
   const box = addAI($("model").selectedOptions[0].textContent.replace(/（.*）/, ""));
   const wait = chip(box, "思考中…");
@@ -431,19 +525,20 @@ $("send").onclick = async () => {
   try {
     let system = SYSTEM[mode];
     if (provider !== "claude") {
-      const msgs = [...plainHistory(base), { role: "user", content: text }];
-      const reply = provider === "openai" ? await callOpenAI(model, system, msgs) : await callGemini(model, system, msgs);
+      const n = normalize([...base, userMsg]);
+      const reply = provider === "openai" ? await callOpenAI(model, system, n) : await callGemini(model, system, n);
       wait.remove();
       appendText(box, reply);
-      if (keepHistory) history = [...msgs, { role: "assistant", content: reply }];
+      if (keepHistory) history = [...base, userMsg, { role: "assistant", content: reply }];
       return;
     }
 
     const tools = useTools ? buildTools() : [];
     if (useTools) system += TOOLS_NOTE;
-    let msgs = [...(useTools ? base : plainHistory(base)), { role: "user", content: text }];
+    let msgs = useTools ? [...base, userMsg] : toClaude(normalize([...base, userMsg]));
     for (let round = 0; round < 6; round++) {
-      const body = { model, max_tokens: 16000, system, messages: msgs, output_config: { effort: "medium" } };
+      // cache_control：對話中的圖片每輪都會重送，快取可大幅省錢
+      const body = { model, max_tokens: 16000, system, messages: msgs, output_config: { effort: "medium" }, cache_control: { type: "ephemeral" } };
       if (tools.length) body.tools = tools;
       const data = await callClaude(body);
       wait.remove();

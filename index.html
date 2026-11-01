@@ -3,42 +3,84 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>我的 Claude 小工具</title>
+<title>AI 學科老師</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="32x32" href="icon/favicon-32.png">
 <link rel="apple-touch-icon" href="icon/apple-touch-icon.png">
 <meta name="theme-color" content="#0e5a6a">
 <meta name="apple-mobile-web-app-title" content="AI 老師">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
 <style>
-  body { font-family: system-ui, "Noto Sans TC", sans-serif; max-width: 760px; margin: 0 auto; padding: 16px; line-height: 1.6; }
-  h1 { font-size: 1.3rem; }
-  .row { display: flex; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
-  input, select, textarea, button { font: inherit; padding: 8px; }
+  :root { --main: #0e5a6a; --soft: #e7f1f3; --line: #d6e2e5; }
+  body { font-family: system-ui, "Noto Sans TC", sans-serif; max-width: 760px; margin: 0 auto; padding: 16px; line-height: 1.7; background: #fff; color: #222; }
+  h1 { font-size: 1.3rem; display: flex; align-items: center; gap: 8px; }
+  h1 img { width: 32px; height: 32px; border-radius: 8px; }
+  .row { display: flex; gap: 8px; margin: 8px 0; flex-wrap: wrap; align-items: center; }
+  input, select, textarea, button { font: inherit; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
   input[type=password] { flex: 1; min-width: 200px; }
+  input[type=checkbox] { width: 18px; height: 18px; }
   textarea { width: 100%; box-sizing: border-box; min-height: 90px; }
-  button { cursor: pointer; }
+  button { cursor: pointer; background: #fff; }
+  #send { background: var(--main); color: #fff; border-color: var(--main); padding: 8px 24px; }
+  #send:disabled { opacity: .5; }
+  details.settings { border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px; margin: 8px 0; }
+  details.settings summary { cursor: pointer; font-weight: 600; }
+  .keyrow label { width: 90px; font-size: .9rem; }
   #log { margin-top: 16px; }
-  .msg { padding: 10px 12px; margin: 8px 0; border-radius: 8px; white-space: pre-wrap; }
-  .me { background: #e8f0fe; }
-  .ai { background: #f1f1f1; }
+  .msg { padding: 10px 14px; margin: 10px 0; border-radius: 10px; overflow-x: auto; }
+  .me { background: #e8f0fe; white-space: pre-wrap; }
+  .ai { background: #f7f9fa; border: 1px solid var(--line); }
   .err { background: #fde8e8; }
   .note { font-size: .85rem; color: #666; }
+  .who { font-size: .75rem; color: #888; margin-bottom: 4px; }
+  .ai h1, .ai h2, .ai h3 { font-size: 1.05rem; margin: 14px 0 6px; color: var(--main); }
+  .ai table { border-collapse: collapse; margin: 8px 0; }
+  .ai th, .ai td { border: 1px solid var(--line); padding: 4px 10px; }
+  .ai th { background: var(--soft); }
+  .ai pre { background: #272822; color: #f8f8f2; padding: 10px; border-radius: 8px; overflow-x: auto; }
+  .ai code { font-size: .9em; }
+  .ai blockquote { border-left: 4px solid var(--main); margin: 8px 0; padding: 2px 12px; background: var(--soft); }
+  .ai img.gen { max-width: 100%; border-radius: 10px; margin: 8px 0; display: block; }
+  .ai .katex-display { overflow-x: auto; overflow-y: hidden; }
+  .mermaid-box { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin: 8px 0; text-align: center; overflow-x: auto; }
+  iframe.widget { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: #fff; height: 320px; margin: 8px 0; }
+  .chip { display: inline-block; font-size: .85rem; background: var(--soft); color: var(--main); border-radius: 999px; padding: 2px 10px; margin: 4px 0; }
+  .ai details { margin: 6px 0; font-size: .9rem; }
+  .ai details summary { cursor: pointer; color: var(--main); }
 </style>
 </head>
 <body>
-<h1>我的 Claude 小工具</h1>
-<p class="note">你的 API key 只存在這台裝置的瀏覽器裡，不會上傳到任何地方（除了直接送給 Anthropic）。公用電腦請不要使用。</p>
+<h1><img src="icon/icon-192.png" alt="">AI 學科老師</h1>
+<p class="note">API key 只存在這台裝置的瀏覽器裡，只會直接送給各家 AI 公司。公用電腦請不要使用。</p>
 
-<div class="row">
-  <input type="password" id="key" placeholder="貼上你的 API key（sk-ant-...）">
-  <button id="saveKey">儲存</button>
-  <button id="clearKey">清除</button>
-</div>
+<details class="settings" id="settings">
+  <summary>⚙️ API key 設定</summary>
+  <div class="row keyrow"><label>Claude</label><input type="password" id="key_claude" placeholder="sk-ant-...（主要）"></div>
+  <div class="row keyrow"><label>OpenAI</label><input type="password" id="key_openai" placeholder="sk-...（選填）"></div>
+  <div class="row keyrow"><label>Gemini</label><input type="password" id="key_gemini" placeholder="AIza...（選填）"></div>
+  <div class="row"><button id="saveKey">儲存</button><button id="clearKey">全部清除</button></div>
+  <p class="note">只填 Claude 也能用。多填 OpenAI／Gemini，就能選它們的模型，也能讓 Claude 請它們幫忙畫圖、驗算。</p>
+</details>
 
 <div class="row">
   <select id="model">
-    <option value="claude-haiku-5-5">Haiku（最便宜，翻譯夠用）</option>
-    <option value="claude-sonnet-5-5">Sonnet（較聰明，較貴）</option>
+    <optgroup label="Claude">
+      <option value="claude-haiku-5-5">Claude Haiku 5.5（最便宜、快）</option>
+      <option value="claude-sonnet-5-5">Claude Sonnet 5.5（聰明、價格中等）</option>
+      <option value="claude-opus-5-5">Claude Opus 5.5（最聰明，較貴）</option>
+      <option value="claude-fable-5-1">Claude Fable 5.1（頂規，很貴，難題才用）</option>
+    </optgroup>
+    <optgroup label="OpenAI">
+      <option value="gpt-5.4-mini">GPT-5.4 mini（便宜）</option>
+      <option value="gpt-5.5">GPT-5.5（聰明）</option>
+    </optgroup>
+    <optgroup label="Gemini">
+      <option value="gemini-3.8-flash">Gemini 3.8 Flash（便宜、快）</option>
+      <option value="gemini-4-argon">Gemini 4 Argon（聰明）</option>
+    </optgroup>
   </select>
   <select id="mode">
     <option value="tutor">AI 學科老師（國中、高中）</option>
@@ -49,71 +91,379 @@
   </select>
   <button id="reset">清空對話</button>
 </div>
+<div class="row">
+  <label><input type="checkbox" id="agent" checked> 🤖 讓 Claude 請幫手（Gemini／OpenAI 畫插圖、驗算）</label>
+</div>
+<p class="note" id="agentNote"></p>
 
 <p class="note">AI 老師可能會答錯，尤其是計算題。重要的答案請對照課本或問學校老師。</p>
-<textarea id="input" placeholder="輸入內容，按「送出」"></textarea>
+<textarea id="input" placeholder="輸入內容，按「送出」（Ctrl+Enter 也可以）"></textarea>
 <div class="row"><button id="send">送出</button></div>
 <div id="log"></div>
 
 <script>
 const $ = id => document.getElementById(id);
+
+const FORMAT = `
+
+回答格式（畫面會自動把以下格式畫成圖，請多利用，讓學生一眼看懂）：
+- 用 Markdown：小標題前加一個合適的 emoji 圖示（例如 📘 觀念、🧮 計算、💡 提示、✅ 答案、📝 練習），重點用粗體，多用條列與表格。
+- 數學、理化公式一律用 LaTeX：行內 $...$，獨立一行 $$...$$。
+- 流程、因果、分類、時間軸、概念關係，用 \`\`\`mermaid 區塊畫圖（flowchart TD 或 LR 最穩）；節點文字一律加雙引號，例如 A["光合作用"] --> B["葡萄糖"]。
+- 需要圖形或互動時（函數圖形、幾何圖、物理運動、統計圖、可以拉動的滑桿），輸出一個 \`\`\`html 區塊：完整自含的 HTML，CSS 與 JS 寫在裡面，用 SVG 或 canvas 畫，不要載入任何外部檔案或網址，寬度自適應、高度不超過 500px，介面文字用繁體中文。
+- 圖是輔助，不要每題都畫；簡單問題簡短回答就好。`;
+
+const TOOLS_NOTE = `
+
+你有幫手工具可以用：
+- draw_image：請圖像 AI 畫插圖（情境圖、生物構造示意、歷史場景、記憶用的圖）。精確的圖表、函數圖、幾何圖請改用 html 區塊自己畫，不要用 draw_image。一次回答最多畫一張。
+- ask_expert：請另一家 AI 提供第二意見或驗算。對計算結果沒把握、或題目有爭議時再用，不要每題都問。
+如果使用了幫手，回答時簡單提一下（例如「我請 Gemini 幫忙驗算過」）。`;
+
 const SYSTEM = {
-  tutor: "你是台灣國中、高中學生的 AI 學科老師，科目包含國文、英文、數學、自然（理化、生物、地科）、社會（歷史、地理、公民）。\n規則：\n1. 用繁體中文（台灣用語）回答，語氣親切，像耐心的家教老師。\n2. 依照台灣 108 課綱的程度說明，不要用超出學生程度的術語；必須用時先白話解釋。\n3. 學生問作業或題目時，先引導思考、給提示，再講解解法。學生明確要求看答案時，給出完整步驟與答案。\n4. 數學與理化的計算要列出每一步，最後再檢查一次。不確定的地方直接說不確定，請學生再對照課本或問老師。\n5. 回答簡短、分段、條列，一次不要講太多。講完問學生有沒有懂，或出一題類似的讓他練習。\n6. 只談學習相關的事。學生問無關或不適合未成年人的內容，溫和地拒絕，並帶回學習。\n7. 學生提到心情很差、被霸凌、傷害自己或其他嚴重的事，請溫柔回應，並鼓勵他立刻告訴爸媽、老師或學校輔導室。",
-  chat: "請使用繁體中文（台灣用語）回答，簡潔清楚。",
+  tutor: "你是台灣國中、高中學生的 AI 學科老師，科目包含國文、英文、數學、自然（理化、生物、地科）、社會（歷史、地理、公民）。\n規則：\n1. 用繁體中文（台灣用語）回答，語氣親切，像耐心的家教老師。\n2. 依照台灣 108 課綱的程度說明，不要用超出學生程度的術語；必須用時先白話解釋。\n3. 學生問作業或題目時，先引導思考、給提示，再講解解法。學生明確要求看答案時，給出完整步驟與答案。\n4. 數學與理化的計算要列出每一步，最後再檢查一次。不確定的地方直接說不確定，請學生再對照課本或問老師。\n5. 回答簡短、分段、條列，一次不要講太多。講完問學生有沒有懂，或出一題類似的讓他練習。\n6. 只談學習相關的事。學生問無關或不適合未成年人的內容，溫和地拒絕，並帶回學習。\n7. 學生提到心情很差、被霸凌、傷害自己或其他嚴重的事，請溫柔回應，並鼓勵他立刻告訴爸媽、老師或學校輔導室。" + FORMAT,
+  chat: "請使用繁體中文（台灣用語）回答，簡潔清楚。" + FORMAT,
   zh: "你是翻譯員。把使用者給的文字翻成繁體中文（台灣用語）。只輸出譯文，不要解釋。",
   en: "You are a translator. Translate the user's text into natural English. Output only the translation.",
   ja: "あなたは翻訳者です。ユーザーの文章を自然な日本語に翻訳してください。訳文のみ出力してください。"
 };
+
+// 幫手用的模型
+const HELPER = { geminiText: "gemini-3.8-flash", geminiImage: "gemini-3.1-flash-image", openaiText: "gpt-5.5", openaiImage: "gpt-image-1-mini" };
+const NAME = { gemini: "Gemini", openai: "GPT" };
+
+// history 項目：{ role, content }，content 是字串，或 Claude 原生的 content blocks 陣列
 let history = [];
 
-$("key").value = localStorage.getItem("anthropic_key") || "";
-$("saveKey").onclick = () => { localStorage.setItem("anthropic_key", $("key").value.trim()); alert("已儲存在這個瀏覽器"); };
-$("clearKey").onclick = () => { localStorage.removeItem("anthropic_key"); $("key").value = ""; };
-$("reset").onclick = () => { history = []; $("log").innerHTML = ""; };
+// ---------- 設定 ----------
+const KEYS = { claude: "anthropic_key", openai: "openai_key", gemini: "gemini_key" };
+const getKey = p => $("key_" + p).value.trim();
+const store = {
+  get: k => { try { return localStorage.getItem(k) || ""; } catch { return ""; } },
+  set: (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {} }
+};
+for (const p in KEYS) $("key_" + p).value = store.get(KEYS[p]);
+if (!getKey("claude") && !getKey("openai") && !getKey("gemini")) $("settings").open = true;
+$("model").value = store.get("tutor_model") || "claude-haiku-5-5";
+if (!$("model").value) $("model").value = "claude-haiku-5-5";
 
+$("saveKey").onclick = () => { for (const p in KEYS) store.set(KEYS[p], getKey(p)); updateAgentNote(); alert("已儲存在這個瀏覽器"); };
+$("clearKey").onclick = () => { for (const p in KEYS) { store.set(KEYS[p], ""); $("key_" + p).value = ""; } updateAgentNote(); };
+$("reset").onclick = () => { history = []; $("log").innerHTML = ""; };
+$("model").onchange = () => { store.set("tutor_model", $("model").value); updateAgentNote(); };
+$("agent").onchange = updateAgentNote;
+$("input").addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("send").click(); });
+
+const providerOf = m => m.startsWith("claude") ? "claude" : m.startsWith("gpt") ? "openai" : "gemini";
+const helpers = () => ["gemini", "openai"].filter(getKey);
+
+function updateAgentNote() {
+  const isClaude = providerOf($("model").value) === "claude";
+  const h = helpers();
+  $("agentNote").textContent = !isClaude ? "（幫手功能只在選 Claude 模型時有效）"
+    : !h.length ? "（要用幫手，請在設定填 OpenAI 或 Gemini 的 key）"
+    : $("agent").checked ? `可用幫手：${h.map(p => NAME[p]).join("、")}。畫圖每張另外計費。` : "";
+}
+updateAgentNote();
+
+// ---------- 畫面 ----------
 function add(text, cls) {
   const d = document.createElement("div");
   d.className = "msg " + cls;
   d.textContent = text;
   $("log").prepend(d);
+  return d;
 }
 
+function addAI(modelLabel) {
+  const d = document.createElement("div");
+  d.className = "msg ai";
+  d.innerHTML = `<div class="who"></div><div class="body"></div>`;
+  d.querySelector(".who").textContent = modelLabel;
+  $("log").prepend(d);
+  return d.querySelector(".body");
+}
+
+function chip(box, text) {
+  const c = document.createElement("div");
+  c.className = "chip";
+  c.textContent = text;
+  box.append(c);
+  return c;
+}
+
+// Markdown + 公式 + mermaid + 互動 html
+function renderMarkdown(text) {
+  const math = [];
+  // 程式碼區塊裡的 $ 不當公式處理
+  const parts = text.split(/(```[\s\S]*?```|`[^`\n]*`)/);
+  for (let i = 0; i < parts.length; i += 2) {
+    parts[i] = parts[i].replace(/\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$([^$\n]+?)\$/g, (m, a, b, c, d) => {
+      const display = a !== undefined || b !== undefined;
+      math.push(katex.renderToString(a ?? b ?? c ?? d, { displayMode: display, throwOnError: false }));
+      return `KXMATH${math.length - 1}X`;
+    });
+  }
+  let html = DOMPurify.sanitize(marked.parse(parts.join(""), { breaks: true }));
+  html = html.replace(/KXMATH(\d+)X/g, (m, i) => math[i]);
+  const el = document.createElement("div");
+  el.innerHTML = html;
+
+  el.querySelectorAll("pre > code.language-mermaid").forEach(code => {
+    const box = document.createElement("div");
+    box.className = "mermaid-box";
+    box.dataset.src = code.textContent;
+    code.parentElement.replaceWith(box);
+  });
+  el.querySelectorAll("pre > code.language-html").forEach(code => {
+    code.parentElement.replaceWith(makeWidget(code.textContent));
+  });
+  return el;
+}
+
+// 互動小圖放進沙盒 iframe：拿不到 API key、也不能連網
+function makeWidget(src) {
+  const f = document.createElement("iframe");
+  f.className = "widget";
+  f.setAttribute("sandbox", "allow-scripts");
+  const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:">`;
+  const resize = `<script>const __p=()=>parent.postMessage({__h:document.documentElement.scrollHeight},"*");addEventListener("load",__p);new ResizeObserver(__p).observe(document.documentElement);<\/script>`;
+  f.srcdoc = csp + `<style>body{font-family:system-ui,"Noto Sans TC",sans-serif;margin:8px}</style>` + src + resize;
+  return f;
+}
+addEventListener("message", e => {
+  if (!e.data || typeof e.data.__h !== "number") return;
+  for (const f of document.querySelectorAll("iframe.widget"))
+    if (f.contentWindow === e.source) f.style.height = Math.min(Math.max(e.data.__h + 4, 80), 820) + "px";
+});
+
+let mermaidLib = null;
+async function drawMermaid(root) {
+  const boxes = [...root.querySelectorAll(".mermaid-box:not([data-done])")];
+  if (!boxes.length) return;
+  if (!mermaidLib) {
+    mermaidLib = (await import("https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.esm.min.mjs")).default;
+    mermaidLib.initialize({ startOnLoad: false, securityLevel: "strict", theme: "neutral" });
+  }
+  for (const box of boxes) {
+    box.dataset.done = "1";
+    try {
+      const { svg } = await mermaidLib.render("m" + Math.random().toString(36).slice(2), box.dataset.src);
+      box.innerHTML = svg;
+    } catch {
+      box.innerHTML = "<div class='note'>（這張圖畫不出來，以下是原始內容）</div>";
+      const pre = document.createElement("pre");
+      pre.textContent = box.dataset.src;
+      box.append(pre);
+    }
+  }
+}
+
+function appendText(box, text) {
+  if (!text.trim()) return;
+  const el = renderMarkdown(text);
+  box.append(el);
+  drawMermaid(el);
+}
+
+function appendImage(box, mime, b64, caption) {
+  const img = document.createElement("img");
+  img.className = "gen";
+  img.src = `data:${mime};base64,${b64}`;
+  img.alt = caption;
+  box.append(img);
+}
+
+// ---------- 各家 API ----------
+async function postJSON(url, headers, body) {
+  const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error?.message || res.status);
+  return data;
+}
+
+// 把 Claude 原生格式的對話轉成純文字（給 OpenAI / Gemini，或不開工具的 Claude）
+function plainHistory(msgs) {
+  const out = [];
+  for (const m of msgs) {
+    const text = typeof m.content === "string" ? m.content
+      : m.content.filter(b => b.type === "text").map(b => b.text).join("\n");
+    if (!text.trim()) continue;
+    const last = out[out.length - 1];
+    if (last && last.role === m.role) last.content += "\n" + text;
+    else out.push({ role: m.role, content: text });
+  }
+  return out;
+}
+
+async function callOpenAI(model, system, msgs) {
+  const data = await postJSON("https://api.openai.com/v1/chat/completions",
+    { authorization: "Bearer " + getKey("openai") },
+    { model, messages: [{ role: "system", content: system }, ...msgs] });
+  return data.choices[0].message.content || "";
+}
+
+async function callGemini(model, system, msgs) {
+  const data = await postJSON(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+    { "x-goog-api-key": getKey("gemini") },
+    {
+      systemInstruction: { parts: [{ text: system }] },
+      contents: msgs.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }))
+    });
+  return (data.candidates?.[0]?.content?.parts || []).filter(p => p.text).map(p => p.text).join("\n");
+}
+
+async function callClaude(body) {
+  const fallback = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1"].includes(body.model);
+  const headers = {
+    "x-api-key": getKey("claude"),
+    "anthropic-version": "2023-06-01",
+    "anthropic-dangerous-direct-browser-access": "true"
+  };
+  // 被安全機制擋下時，讓伺服器自動改用其他模型回答
+  if (fallback) { headers["anthropic-beta"] = "server-side-fallback-2026-07-01"; body.fallbacks = "default"; }
+  return postJSON("https://api.anthropic.com/v1/messages", headers, body);
+}
+
+// ---------- 幫手工具 ----------
+function buildTools() {
+  const h = helpers();
+  if (!h.length) return [];
+  return [
+    {
+      name: "draw_image",
+      description: "請圖像 AI 畫一張插圖，直接顯示給學生看。適合情境圖、構造示意、歷史場景、幫助記憶的圖。不適合精確的圖表、函數圖、幾何圖或含大量文字的圖。",
+      strict: true,
+      input_schema: {
+        type: "object",
+        properties: {
+          prompt: { type: "string", description: "給圖像 AI 的英文描述：主體、構圖、風格（建議 clean educational illustration）。圖中盡量不要放文字。" },
+          caption: { type: "string", description: "顯示在圖下方的繁體中文說明，一句話" }
+        },
+        required: ["prompt", "caption"],
+        additionalProperties: false
+      }
+    },
+    {
+      name: "ask_expert",
+      description: "請另一家 AI 回答問題或驗算，取得第二意見。回傳該 AI 的回答全文。",
+      strict: true,
+      input_schema: {
+        type: "object",
+        properties: {
+          provider: { type: "string", enum: h, description: "要問哪一家：" + h.map(p => `${p}=${NAME[p]}`).join("，") },
+          question: { type: "string", description: "完整、可獨立理解的問題（含題目與你想確認的地方）" }
+        },
+        required: ["provider", "question"],
+        additionalProperties: false
+      }
+    }
+  ];
+}
+
+async function drawImage(prompt) {
+  if (getKey("gemini")) {
+    const data = await postJSON(`https://generativelanguage.googleapis.com/v1beta/models/${HELPER.geminiImage}:generateContent`,
+      { "x-goog-api-key": getKey("gemini") },
+      { contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseModalities: ["TEXT", "IMAGE"] } });
+    const part = (data.candidates?.[0]?.content?.parts || []).find(p => p.inlineData);
+    if (!part) throw new Error("Gemini 沒有回傳圖片");
+    return { who: "Gemini", mime: part.inlineData.mimeType, b64: part.inlineData.data };
+  }
+  const data = await postJSON("https://api.openai.com/v1/images/generations",
+    { authorization: "Bearer " + getKey("openai") },
+    { model: HELPER.openaiImage, prompt, size: "1024x1024", quality: "medium" });
+  return { who: "OpenAI", mime: "image/png", b64: data.data[0].b64_json };
+}
+
+async function runTool(block, box) {
+  const inp = block.input || {};
+  try {
+    if (block.name === "draw_image") {
+      const c = chip(box, "🎨 請幫手畫圖中…");
+      const img = await drawImage(String(inp.prompt || ""));
+      c.textContent = `🎨 ${img.who} 畫好了`;
+      appendImage(box, img.mime, img.b64, inp.caption || "");
+      if (inp.caption) { const n = document.createElement("div"); n.className = "note"; n.textContent = inp.caption; box.append(n); }
+      return { type: "tool_result", tool_use_id: block.id, content: "圖片已產生並顯示給學生。" };
+    }
+    if (block.name === "ask_expert") {
+      const p = inp.provider === "openai" ? "openai" : "gemini";
+      const c = chip(box, `🧑‍🏫 請 ${NAME[p]} 提供意見中…`);
+      const q = [{ role: "user", content: String(inp.question || "") }];
+      const sys = "你是協助台灣國高中老師的專家。用繁體中文回答，精確、簡潔，計算列出步驟。";
+      const ans = p === "openai" ? await callOpenAI(HELPER.openaiText, sys, q) : await callGemini(HELPER.geminiText, sys, q);
+      c.textContent = `🧑‍🏫 ${NAME[p]} 回覆了`;
+      const det = document.createElement("details");
+      det.innerHTML = `<summary>看 ${NAME[p]} 的原始回覆</summary>`;
+      det.append(renderMarkdown(ans));
+      box.append(det);
+      return { type: "tool_result", tool_use_id: block.id, content: ans.slice(0, 8000) || "（沒有回覆）" };
+    }
+    throw new Error("未知的工具");
+  } catch (e) {
+    chip(box, `⚠️ 幫手失敗：${e.message}`);
+    return { type: "tool_result", tool_use_id: block.id, content: "工具執行失敗：" + e.message, is_error: true };
+  }
+}
+
+// ---------- 送出 ----------
 $("send").onclick = async () => {
-  const key = $("key").value.trim();
+  const model = $("model").value;
+  const provider = providerOf(model);
   const text = $("input").value.trim();
-  if (!key) return add("請先貼上 API key", "err");
+  if (!getKey(provider)) { $("settings").open = true; return add(`請先在設定填 ${provider === "claude" ? "Claude" : NAME[provider]} 的 API key`, "err"); }
   if (!text) return;
   const mode = $("mode").value;
   // 翻譯模式每次獨立，不帶歷史；聊天模式才累積對話
   const keepHistory = mode === "chat" || mode === "tutor";
-  const messages = keepHistory ? [...history, { role: "user", content: text }] : [{ role: "user", content: text }];
+  const base = keepHistory ? history : [];
+  const useTools = provider === "claude" && keepHistory && $("agent").checked && helpers().length > 0;
+
   add(text, "me");
   $("input").value = "";
   $("send").disabled = true;
+  const box = addAI($("model").selectedOptions[0].textContent.replace(/（.*）/, ""));
+  const wait = chip(box, "思考中…");
+  const t0 = Date.now();
+  const timer = setInterval(() => wait.textContent = `思考中… ${Math.round((Date.now() - t0) / 1000)} 秒`, 1000);
+
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true"
-      },
-      body: JSON.stringify({
-        model: $("model").value,
-        max_tokens: 2000,
-        system: SYSTEM[mode],
-        messages
-      })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error?.message || res.status);
-    const reply = data.content.filter(b => b.type === "text").map(b => b.text).join("\n");
-    if (keepHistory) history = [...messages, { role: "assistant", content: reply }];
-    add(reply, "ai");
+    let system = SYSTEM[mode];
+    if (provider !== "claude") {
+      const msgs = [...plainHistory(base), { role: "user", content: text }];
+      const reply = provider === "openai" ? await callOpenAI(model, system, msgs) : await callGemini(model, system, msgs);
+      wait.remove();
+      appendText(box, reply);
+      if (keepHistory) history = [...msgs, { role: "assistant", content: reply }];
+      return;
+    }
+
+    const tools = useTools ? buildTools() : [];
+    if (useTools) system += TOOLS_NOTE;
+    let msgs = [...(useTools ? base : plainHistory(base)), { role: "user", content: text }];
+    for (let round = 0; round < 6; round++) {
+      const body = { model, max_tokens: 16000, system, messages: msgs, output_config: { effort: "medium" } };
+      if (tools.length) body.tools = tools;
+      const data = await callClaude(body);
+      wait.remove();
+      if (data.stop_reason === "refusal") { appendText(box, "這個問題我沒辦法回答，換個方式問問看，或問問老師喔。"); break; }
+      appendText(box, data.content.filter(b => b.type === "text").map(b => b.text).join("\n"));
+      msgs = [...msgs, { role: "assistant", content: data.content }];
+      const calls = data.content.filter(b => b.type === "tool_use");
+      if (data.stop_reason !== "tool_use" || !calls.length) break;
+      box.append(wait);
+      const results = await Promise.all(calls.map(b => runTool(b, box)));
+      if (round === 4) results.push({ type: "text", text: "請不要再使用工具，直接給學生最後的回答。" });
+      msgs = [...msgs, { role: "user", content: results }];
+    }
+    if (keepHistory) history = msgs;
   } catch (e) {
-    add("錯誤：" + e.message, "err");
+    wait.remove();
+    box.parentElement.classList.add("err");
+    box.append(document.createTextNode("錯誤：" + e.message));
   } finally {
+    clearInterval(timer);
     $("send").disabled = false;
   }
 };

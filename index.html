@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>我的 Claude 小工具</title>
+<style>
+  body { font-family: system-ui, "Noto Sans TC", sans-serif; max-width: 760px; margin: 0 auto; padding: 16px; line-height: 1.6; }
+  h1 { font-size: 1.3rem; }
+  .row { display: flex; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+  input, select, textarea, button { font: inherit; padding: 8px; }
+  input[type=password] { flex: 1; min-width: 200px; }
+  textarea { width: 100%; box-sizing: border-box; min-height: 90px; }
+  button { cursor: pointer; }
+  #log { margin-top: 16px; }
+  .msg { padding: 10px 12px; margin: 8px 0; border-radius: 8px; white-space: pre-wrap; }
+  .me { background: #e8f0fe; }
+  .ai { background: #f1f1f1; }
+  .err { background: #fde8e8; }
+  .note { font-size: .85rem; color: #666; }
+</style>
+</head>
+<body>
+<h1>我的 Claude 小工具</h1>
+<p class="note">你的 API key 只存在這台裝置的瀏覽器裡，不會上傳到任何地方（除了直接送給 Anthropic）。公用電腦請不要使用。</p>
+
+<div class="row">
+  <input type="password" id="key" placeholder="貼上你的 API key（sk-ant-...）">
+  <button id="saveKey">儲存</button>
+  <button id="clearKey">清除</button>
+</div>
+
+<div class="row">
+  <select id="model">
+    <option value="claude-haiku-5-5">Haiku（最便宜，翻譯夠用）</option>
+    <option value="claude-sonnet-5-5">Sonnet（較聰明，較貴）</option>
+  </select>
+  <select id="mode">
+    <option value="tutor">AI 學科老師（國中、高中）</option>
+    <option value="chat">一般聊天</option>
+    <option value="zh">翻成繁體中文（台灣用語）</option>
+    <option value="en">翻成英文</option>
+    <option value="ja">翻成日文</option>
+  </select>
+  <button id="reset">清空對話</button>
+</div>
+
+<p class="note">AI 老師可能會答錯，尤其是計算題。重要的答案請對照課本或問學校老師。</p>
+<textarea id="input" placeholder="輸入內容，按「送出」"></textarea>
+<div class="row"><button id="send">送出</button></div>
+<div id="log"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const SYSTEM = {
+  tutor: "你是台灣國中、高中學生的 AI 學科老師，科目包含國文、英文、數學、自然（理化、生物、地科）、社會（歷史、地理、公民）。\n規則：\n1. 用繁體中文（台灣用語）回答，語氣親切，像耐心的家教老師。\n2. 依照台灣 108 課綱的程度說明，不要用超出學生程度的術語；必須用時先白話解釋。\n3. 學生問作業或題目時，先引導思考、給提示，再講解解法。學生明確要求看答案時，給出完整步驟與答案。\n4. 數學與理化的計算要列出每一步，最後再檢查一次。不確定的地方直接說不確定，請學生再對照課本或問老師。\n5. 回答簡短、分段、條列，一次不要講太多。講完問學生有沒有懂，或出一題類似的讓他練習。\n6. 只談學習相關的事。學生問無關或不適合未成年人的內容，溫和地拒絕，並帶回學習。\n7. 學生提到心情很差、被霸凌、傷害自己或其他嚴重的事，請溫柔回應，並鼓勵他立刻告訴爸媽、老師或學校輔導室。",
+  chat: "請使用繁體中文（台灣用語）回答，簡潔清楚。",
+  zh: "你是翻譯員。把使用者給的文字翻成繁體中文（台灣用語）。只輸出譯文，不要解釋。",
+  en: "You are a translator. Translate the user's text into natural English. Output only the translation.",
+  ja: "あなたは翻訳者です。ユーザーの文章を自然な日本語に翻訳してください。訳文のみ出力してください。"
+};
+let history = [];
+
+$("key").value = localStorage.getItem("anthropic_key") || "";
+$("saveKey").onclick = () => { localStorage.setItem("anthropic_key", $("key").value.trim()); alert("已儲存在這個瀏覽器"); };
+$("clearKey").onclick = () => { localStorage.removeItem("anthropic_key"); $("key").value = ""; };
+$("reset").onclick = () => { history = []; $("log").innerHTML = ""; };
+
+function add(text, cls) {
+  const d = document.createElement("div");
+  d.className = "msg " + cls;
+  d.textContent = text;
+  $("log").prepend(d);
+}
+
+$("send").onclick = async () => {
+  const key = $("key").value.trim();
+  const text = $("input").value.trim();
+  if (!key) return add("請先貼上 API key", "err");
+  if (!text) return;
+  const mode = $("mode").value;
+  // 翻譯模式每次獨立，不帶歷史；聊天模式才累積對話
+  const keepHistory = mode === "chat" || mode === "tutor";
+  const messages = keepHistory ? [...history, { role: "user", content: text }] : [{ role: "user", content: text }];
+  add(text, "me");
+  $("input").value = "";
+  $("send").disabled = true;
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: $("model").value,
+        max_tokens: 2000,
+        system: SYSTEM[mode],
+        messages
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || res.status);
+    const reply = data.content.filter(b => b.type === "text").map(b => b.text).join("\n");
+    if (keepHistory) history = [...messages, { role: "assistant", content: reply }];
+    add(reply, "ai");
+  } catch (e) {
+    add("錯誤：" + e.message, "err");
+  } finally {
+    $("send").disabled = false;
+  }
+};
+</script>
+</body>
+</html>
